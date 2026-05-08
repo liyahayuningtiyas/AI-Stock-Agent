@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-
 from agent import run_stock_agent
+from market_movers import get_market_movers
 
 st.set_page_config(
     page_title="AI Stock Agent",
@@ -10,14 +11,111 @@ st.set_page_config(
 )
 
 st.title("AI Stock Agent Dashboard")
+
 st.write("This app analyzes stock trends, risk, and recent news sentiment.")
 
-ticker = st.text_input("Enter stock ticker", "TSM")
+st.sidebar.title("Control Panel")
 
-start_date = st.date_input("Start date", pd.to_datetime("2025-01-01"))
-end_date = st.date_input("End date", pd.to_datetime("2026-01-01"))
+ticker_input = st.sidebar.text_input(
+    "Enter Stock Ticker or Taiwan Stock Number",
+    "2330"
+)
 
-if st.button("Analyze Stock"):
+# Auto convert Taiwan stock number
+if ticker_input.isdigit():
+    ticker = f"{ticker_input}.TW"
+else:
+    ticker = ticker_input.upper()
+
+start_date = st.sidebar.date_input(
+    "Start Date",
+    pd.to_datetime("2025-01-01")
+)
+
+end_date = st.sidebar.date_input(
+    "End Date",
+    pd.to_datetime("2026-01-01")
+)
+
+analyze_button = st.sidebar.button("Analyze Stock")
+
+st.subheader("Market Overview")
+
+st.caption(
+    "Market performance overview based on selected watchlist stocks."
+)
+
+watchlist = [
+    "2330",
+    "2454",
+    "2303",
+    "2379",
+    "8299",
+    "NVDA",
+    "AAPL",
+    "MSFT",
+    "AMD",
+    "TSM",
+    "TSLA",
+    "GOOGL",
+    "META",
+    "BTC-USD",
+    "ETH-USD"
+]
+
+gainers, losers = get_market_movers(
+    watchlist,
+    period="5d"
+)
+
+market_df = pd.concat([gainers, losers])
+
+market_df = market_df.drop_duplicates()
+
+market_df = market_df.sort_values(
+    "Change %",
+    ascending=False
+)
+
+def market_status(change):
+
+    if change > 3:
+        return "🚀 Strong Up"
+
+    elif change > 0:
+        return "🟢 Up"
+
+    elif change < -3:
+        return "🔻 Strong Down"
+
+    else:
+        return "🔴 Down"
+
+market_df["Status"] = market_df["Change %"].apply(
+    market_status
+)
+
+st.dataframe(
+    market_df,
+    use_container_width=True
+)
+
+col_g, col_l = st.columns(2)
+
+with col_g:
+    st.markdown("### 🚀 Top Gainers")
+    st.dataframe(
+        gainers,
+        use_container_width=True
+    )
+
+with col_l:
+    st.markdown("### 📉 Top Losers")
+    st.dataframe(
+        losers,
+        use_container_width=True
+    )
+if analyze_button:
 
     result = run_stock_agent(ticker, start_date, end_date)
 
@@ -46,22 +144,65 @@ if st.button("Analyze Stock"):
         st.subheader("Final AI Agent Decision")
         st.success(f"Final Signal: {result['final_signal']}")
         st.write(result["explanation"])
+        
+        st.subheader("Agent Report")
 
-        st.subheader("Stock Chart")
+        report_text = f"""
+        ### Stock: {ticker}
 
-        fig, ax = plt.subplots(figsize=(12, 5))
+        **Technical Trend:** {tech['trend_signal']}  
+        **RSI Condition:** {tech['rsi_signal']}  
+        **Risk Level:** {tech['risk_level']}  
+        **News Sentiment:** {sentiment_summary['overall_sentiment']}  
 
-        ax.plot(data.index, data["Close"], label="Close Price")
-        ax.plot(data.index, data["MA20"], label="MA20")
-        ax.plot(data.index, data["MA50"], label="MA50")
+        **Final Agent Decision:** {result['final_signal']}
 
-        ax.set_title(f"{ticker} Stock Analysis")
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Price")
-        ax.legend()
-        ax.grid(True)
+        **Explanation:**  
+        {result['explanation']}
 
-        st.pyplot(fig)
+        **Important Note:**  
+        This is a decision-support system, not financial advice. The stock market is uncertain, and investors should consider additional research before making decisions.
+        """
+
+        st.markdown(report_text)
+
+        st.subheader("Interactive Candlestick Chart")
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Candlestick(
+            x=data.index,
+            open=data["Open"],
+            high=data["High"],
+            low=data["Low"],
+            close=data["Close"],
+            name="Candlestick"
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=data.index,
+            y=data["MA20"],
+            mode="lines",
+            name="MA20"
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=data.index,
+            y=data["MA50"],
+            mode="lines",
+            name="MA50"
+        ))
+
+        fig.update_layout(
+            title=f"{ticker} Candlestick Chart",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            hovermode="x unified",
+            height=600,
+            xaxis_rangeslider_visible=False
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("RSI Chart")
 
